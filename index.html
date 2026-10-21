@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10151d">
+<title>Kaspa кошелёк</title>
+<style>
+:root{color-scheme:dark;--bg:#10151d;--card:#1a2330;--muted:#9eacbd;--text:#f4f7fb;--accent:#49e2c2;--line:#2b394a}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#14212a,#10151d 45%);color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+main{max-width:560px;margin:0 auto;padding:24px 16px 36px}
+header{display:flex;align-items:center;gap:12px;margin:8px 0 22px}.logo{width:48px;height:48px;border-radius:16px;background:var(--accent);color:#06251f;display:grid;place-items:center;font-weight:900;font-size:20px}
+h1{font-size:24px;margin:0} .sub{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:rgba(26,35,48,.94);border:1px solid var(--line);border-radius:20px;padding:20px;margin:14px 0;box-shadow:0 12px 30px #0002}
+.label{font-size:13px;color:var(--muted)}.balance{font-size:35px;font-weight:750;letter-spacing:-1px;margin:8px 0}.usd{font-size:19px;color:var(--accent);font-weight:650}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.metric{background:#121b25;border-radius:15px;padding:15px}.metric strong{display:block;font-size:19px;margin-top:7px}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:center}.pill{font-size:12px;border-radius:999px;padding:6px 10px;background:#193a36;color:var(--accent)}
+button{border:0;border-radius:13px;background:var(--accent);color:#06251f;font-weight:750;font-size:15px;padding:14px 16px;width:100%;margin-top:12px}
+button.secondary{background:#273646;color:var(--text)}.status{font-size:13px;color:var(--muted);line-height:1.5;margin-top:12px}
+.address{font-size:11px;line-height:1.55;overflow-wrap:anywhere;color:var(--muted);margin-top:8px}
+input{width:100%;background:#101923;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:13px;font-size:13px;margin-top:8px} .address-block{padding:12px 0;border-bottom:1px solid var(--line)} .address-block:last-of-type{border-bottom:0}
+a{color:var(--accent)}.small{font-size:12px;color:var(--muted);line-height:1.5}.positive{color:var(--accent)}.negative{color:#ff9b9b}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:12px}
+</style>
+</head>
+<body><main>
+<header><div class="logo">KAS</div><div><h1>Kaspa Ledger Nano S</h1><div class="sub">Баланс кошелька · только просмотр</div></div></header>
+<section class="card">
+  <div class="row"><div class="label">МОЙ БАЛАНС</div><span class="pill" id="state">Загрузка…</span></div>
+  <div class="balance" id="kas">— KAS</div>
+  <div class="usd" id="value">Стоимость: загружается…</div>
+  <div class="small" style="margin-top:12px">Баланс считывается из публичной сети Kaspa. Ключи и Ledger не используются.</div>
+</section>
+<div class="grid">
+  <section class="metric"><div class="label">Цена KAS</div><strong id="price">—</strong><div class="small">USD за 1 KAS</div></section>
+  <section class="metric"><div class="label">Изменение за 24 ч.</div><strong id="change">—</strong><div class="small">По данным CoinGecko</div></section>
+</div>
+<section class="card">
+  <div class="row"><strong>Обновление данных</strong><span class="pill">Автоматически</span></div>
+  <button id="refresh">Обновить данные</button>
+  <div class="status" id="status">Ожидаю данные…</div>
+</section>
+<footer>Только просмотр. Не вводи здесь seed-фразу, PIN-код или приватные ключи.</footer>
+</main>
+<script>
+const DEFAULT_ADDRESS_1 = "kaspa:qp4lfzw3ayhsjxghx00l9h9ad36n8cp006ntdn4ayaj60n2f904kz97x7hca2";
+const DEFAULT_ADDRESS_2 = "kaspa:qp2kys5f8pjelmlxmalj94sze29he9wdcl32upy2ppahjwqhrhtq26nsquuy8";
+const $ = id => document.getElementById(id);
+// Versioned storage keys ensure the two addresses supplied by the user are loaded by default.
+let address1 = localStorage.getItem("kaspa_address1_v2") || DEFAULT_ADDRESS_1;
+let address2 = localStorage.getItem("kaspa_address2_v2") || DEFAULT_ADDRESS_2;
+let totalBalance = 0;
+function fmt(n, max=8){return Number(n).toLocaleString("en-US",{maximumFractionDigits:max});}
+function validAddress(a){return /^kaspa:[a-z0-9]{50,}$/.test(a.trim());}
+async function fetchBalance(address){
+  const r=await fetch("https://api.kaspa.org/addresses/"+encodeURIComponent(address)+"/balance",{cache:"no-store"});
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  const d=await r.json();
+  let raw = d.balance ?? d.balanceSompi ?? d;
+  if(typeof raw==="object" && raw!==null) raw=raw.balance ?? raw.amount ?? raw.total;
+  const n=Number(raw);
+  if(!Number.isFinite(n)) throw new Error("Неизвестный формат ответа API");
+  return n/1e8;
+}
+async function refresh(){
+  $("state").textContent="Обновление…";
+  $("status").textContent="Получаю данные из публичных источников…";
+  $("kas").textContent="Загрузка…";
+  $("value").textContent="Стоимость: рассчитывается…";
+
+  let balances = [], balanceErrors = [];
+  for (const [idx, addr] of [[1,address1],[2,address2]]) {
+    if (!validAddress(addr)) { balanceErrors.push("Адрес "+idx+": неверный формат"); continue; }
+    try { balances.push(await fetchBalance(addr)); }
+    catch(e) { balanceErrors.push("Адрес "+idx+": "+e.message); }
+  }
+
+  let priceOk=false, price=0;
+  try {
+    const r=await fetch("https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_24hr_change=true",{cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const d=await r.json(); const k=d.kaspa;
+    price=Number(k.usd);
+    if(!Number.isFinite(price)) throw new Error("Цена не найдена");
+    priceOk=true;
+    $("price").textContent="$"+fmt(price,6);
+    const ch=Number(k.usd_24h_change);
+    $("change").textContent=Number.isFinite(ch)?(ch>0?"+":"")+fmt(ch,2)+"%":"—";
+    $("change").className=Number.isFinite(ch)&&ch<0?"negative":"positive";
+  } catch(e) {
+    $("price").textContent="Недоступно";
+    $("change").textContent="—";
+  }
+
+  // Do not present an incomplete sum as a confirmed total.
+  if(balanceErrors.length===0 && balances.length===2) {
+    const total=balances[0]+balances[1];
+    $("kas").textContent=fmt(total,8)+" KAS";
+    if(priceOk) $("value").textContent="Общая стоимость: $"+fmt(total*price,2);
+    else $("value").textContent="Стоимость: курс временно недоступен";
+    $("state").textContent=priceOk?"Актуально":"Баланс получен";
+    $("status").textContent="Обновлено: "+new Date().toLocaleString()+ (priceOk?"":" · Не удалось загрузить рыночную цену.");
+  } else {
+    $("kas").textContent="Не удалось проверить оба адреса";
+    $("value").textContent="Общая сумма не рассчитана";
+    $("state").textContent="Ошибка";
+    $("status").textContent="Баланс не удалось получить по всем адресам ("+balanceErrors.join("; ")+"). Проверь подключение и попробуй обновить позже.";
+  }
+}
+$("refresh").addEventListener("click",refresh);
+refresh();
+setInterval(refresh,60000);
+</script>
+</body></html>
